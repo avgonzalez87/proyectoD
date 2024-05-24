@@ -1,23 +1,39 @@
 from flask import Flask, request, jsonify
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from datetime import datetime
 import psycopg2
 import psycopg2.extras
 
-
 app = Flask(__name__)
-app.config['JWT_SECRET_KEY'] = 'jwt_super_secreto'
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = False  
 
-jwt = JWTManager(app)
+class DatabaseConnection:
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(DatabaseConnection, cls).__new__(cls)
+            cls._instance.connection = psycopg2.connect(
+                dbname="Restaurante",
+                user="postgres",
+                password="adm",
+                host="localhost"
+            )
+        return cls._instance
+
+    def get_connection(self):
+        return self.connection
 
 def get_db_connection():
-    return psycopg2.connect(
-        dbname="Restaurante",
-        user="postgres",
-        password="admin",
-        host="localhost"
-    )
+    return DatabaseConnection().get_connection()
+
+class ResponseFactory:
+    @staticmethod
+    def create_response(response_type, message, data=None):
+        if response_type == 'success':
+            return jsonify({'status': 'success', 'message': message, 'data': data}), 200
+        elif response_type == 'error':
+            return jsonify({'status': 'error', 'message': message}), 400
+        elif response_type == 'not_found':
+            return jsonify({'status': 'not_found', 'message': message}), 404
 
 def serialize_reserva(reserva):
     return {
@@ -27,7 +43,6 @@ def serialize_reserva(reserva):
         'estado': reserva['estado'],
         'detalle': reserva['detalle']
     }
-
 
 @app.route('/')
 def home():
@@ -46,35 +61,28 @@ def login():
     conn.close()
 
     if user_info:
-        access_token = create_access_token(identity={'user_id': user_info[0], 'tipo_usuario': user_info[1]})
-        return jsonify(access_token=access_token), 200
+        return ResponseFactory.create_response('success', 'Login exitoso', {'user_id': user_info[0], 'tipo_usuario': user_info[1]})
     else:
-        return jsonify({"error": "Credenciales inválidas"}), 401
-
+        return ResponseFactory.create_response('error', 'Credenciales inválidas')
 
 @app.route('/reservas', methods=['POST'])
-@jwt_required()
 def crear_reserva():
-    claims = get_jwt_identity()
-    if claims['tipo_usuario'] not in ['super_administrador', 'administrador', 'usuario']:
-        return jsonify({'error': 'Acción no permitida'}), 403
-
     data = request.get_json()
     if not data:
-        return jsonify({'error': 'No se recibieron datos'}), 400
+        return ResponseFactory.create_response('error', 'No se recibieron datos')
 
     required_fields = ['fecha', 'hora', 'estado', 'detalle']
     missing_fields = [field for field in required_fields if field not in data]
     if missing_fields:
-        return jsonify({"error": f"Faltan campos obligatorios: {', '.join(missing_fields)}"}), 400
+        return ResponseFactory.create_response('error', f"Faltan campos obligatorios: {', '.join(missing_fields)}")
 
     try:
         fecha = datetime.strptime(data['fecha'], "%Y-%m-%d").date()
         hora = datetime.strptime(data['hora'], "%H:%M").time()
     except ValueError as e:
-        return jsonify({"error": f"Formato de fecha o hora incorrecto: {str(e)}"}), 400
+        return ResponseFactory.create_response('error', f"Formato de fecha o hora incorrecto: {str(e)}")
 
-    usuario_responsable = claims['user_id']  # Obtiene el ID del usuario desde el JWT
+    usuario_responsable = data['usuario_responsable']
 
     conn = get_db_connection()
     cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
@@ -82,7 +90,7 @@ def crear_reserva():
         cursor.execute("SELECT numero_mesa FROM mesas WHERE disponible = TRUE LIMIT 1;")
         mesa = cursor.fetchone()
         if not mesa:
-            return jsonify({'error': 'No hay mesas disponibles'}), 409
+            return ResponseFactory.create_response('error', 'No hay mesas disponibles')
 
         numero_mesa = mesa['numero_mesa']
         
@@ -92,7 +100,7 @@ def crear_reserva():
         )
         reserva = cursor.fetchone()
         if not reserva:
-            return jsonify({'error': 'Error al crear la reserva'}), 500
+            return ResponseFactory.create_response('error', 'Error al crear la reserva')
 
         cursor.execute(
             "UPDATE mesas SET disponible = FALSE, usuario_responsable = %s WHERE numero_mesa = %s;",
@@ -101,23 +109,16 @@ def crear_reserva():
 
         reserva_serializada = serialize_reserva(reserva)
         conn.commit()
-        return jsonify({"mensaje": "Reserva creada con éxito", "reserva": reserva_serializada}), 201
+        return ResponseFactory.create_response('success', 'Reserva creada con éxito', reserva_serializada)
     except psycopg2.DatabaseError as e:
         conn.rollback()
-        return jsonify({'error': str(e)}), 500
+        return ResponseFactory.create_response('error', str(e))
     finally:
         cursor.close()
         conn.close()
 
-
-
 @app.route('/delete_reserva/<int:reserva_id>', methods=['DELETE'])
-@jwt_required()
 def delete_reserva(reserva_id):
-    claims = get_jwt_identity()
-    if claims['tipo_usuario'] != 'super_administrador':
-        return jsonify({'error': 'Solo el super administrador puede eliminar reservas'}), 403
-
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -132,12 +133,12 @@ def delete_reserva(reserva_id):
                     (reserva['numero_mesa'],)
                 )
             conn.commit()
-            return jsonify({"mensaje": "Reserva eliminada con éxito"}), 200
+            return ResponseFactory.create_response('success', 'Reserva eliminada con éxito')
         else:
-            return jsonify({"error": "Reserva no encontrada"}), 404
+            return ResponseFactory.create_response('not_found', 'Reserva no encontrada')
     except psycopg2.DatabaseError as e:
         conn.rollback()
-        return jsonify({'error': str(e)}), 500
+        return ResponseFactory.create_response('error', str(e))
     finally:
         cursor.close()
         conn.close()

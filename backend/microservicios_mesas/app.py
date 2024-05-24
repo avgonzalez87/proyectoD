@@ -1,21 +1,37 @@
 from flask import Flask, request, jsonify
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import psycopg2
 
-
 app = Flask(__name__)
-app.config['JWT_SECRET_KEY'] = 'jwt_super_secreto'
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = False  
 
-jwt = JWTManager(app)
+class DatabaseConnection:
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(DatabaseConnection, cls).__new__(cls)
+            cls._instance.connection = psycopg2.connect(
+                dbname="Restaurante",
+                user="postgres",
+                password="adm",
+                host="localhost"
+            )
+        return cls._instance
+
+    def get_connection(self):
+        return self.connection
 
 def get_db_connection():
-    return psycopg2.connect(
-        dbname="Restaurante",
-        user="postgres",
-        password="admin",
-        host="localhost"
-    )
+    return DatabaseConnection().get_connection()
+
+class ResponseFactory:
+    @staticmethod
+    def create_response(response_type, message, data=None):
+        if response_type == 'success':
+            return jsonify({'status': 'success', 'message': message, 'data': data}), 200
+        elif response_type == 'error':
+            return jsonify({'status': 'error', 'message': message}), 400
+        elif response_type == 'not_found':
+            return jsonify({'status': 'not_found', 'message': message}), 404
 
 @app.route('/')
 def home():
@@ -33,23 +49,17 @@ def login():
     conn.close()
 
     if user_info:
-        access_token = create_access_token(identity={'user_id': user_info[0], 'tipo_usuario': user_info[1]})
-        return jsonify(access_token=access_token), 200
+        return ResponseFactory.create_response('success', 'Login exitoso', {'user_id': user_info[0], 'tipo_usuario': user_info[1]})
     else:
-        return jsonify({"error": "Credenciales inválidas"}), 401
+        return ResponseFactory.create_response('error', 'Credenciales inválidas')
 
 @app.route('/mesas', methods=['POST'])
-@jwt_required()
 def crear_mesa():
-    claims = get_jwt_identity()
-    if claims['tipo_usuario'] not in ['super_administrador', 'administrador']:
-        return jsonify({'error': 'Acción no permitida'}), 403
-
     data = request.get_json()
     numero_mesa = data['numero_mesa']
     personas = data['personas']
     localizacion = data['localizacion']
-    usuario_responsable = claims['user_id']
+    usuario_responsable = data['usuario_responsable']
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -60,35 +70,29 @@ def crear_mesa():
         )
         numero_mesa = cursor.fetchone()[0]
         conn.commit()
-        return jsonify({"mensaje": "Mesa creada con éxito", "numero_mesa": numero_mesa}), 201
+        return ResponseFactory.create_response('success', 'Mesa creada con éxito', {"numero_mesa": numero_mesa})
     except psycopg2.DatabaseError as e:
-        conn.rollback()  # Asegura revertir cualquier cambio si ocurre un error
-        return jsonify({'error': str(e)}), 500
+        conn.rollback()
+        return ResponseFactory.create_response('error', str(e))
     finally:
         cursor.close()
         conn.close()
 
 @app.route('/mesas/<int:numero_mesa>', methods=['PUT'])
-@jwt_required()
 def actualizar_mesa(numero_mesa):
-    claims = get_jwt_identity()
-    if claims['tipo_usuario'] not in ['super_administrador', 'administrador']:
-        return jsonify({'error': 'Acción no permitida'}), 403
-
     data = request.get_json()
     personas = data.get('personas')
     localizacion = data.get('localizacion')
     disponible = data.get('disponible', True)
-    usuario_responsable = claims['user_id']
+    usuario_responsable = data['usuario_responsable']
 
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Comprobar si la mesa está actualmente reservada
         cursor.execute("SELECT reserva_id FROM mesas WHERE numero_mesa = %s", (numero_mesa,))
         mesa_info = cursor.fetchone()
         if mesa_info and mesa_info['reserva_id'] is not None and disponible:
-            return jsonify({"error": "No se puede marcar como disponible una mesa reservada"}), 403
+            return ResponseFactory.create_response('error', "No se puede marcar como disponible una mesa reservada")
 
         cursor.execute(
             "UPDATE mesas SET personas = %s, localizacion = %s, disponible = %s, usuario_responsable = %s WHERE numero_mesa = %s RETURNING numero_mesa;",
@@ -96,23 +100,18 @@ def actualizar_mesa(numero_mesa):
         )
         updated_mesa = cursor.fetchone()
         if not updated_mesa:
-            return jsonify({"error": "Mesa no encontrada"}), 404
+            return ResponseFactory.create_response('not_found', "Mesa no encontrada")
         conn.commit()
-        return jsonify({"mensaje": "Mesa actualizada con éxito", "numero_mesa": updated_mesa[0]}), 200
+        return ResponseFactory.create_response('success', "Mesa actualizada con éxito", {"numero_mesa": updated_mesa[0]})
     except psycopg2.DatabaseError as e:
-        conn.rollback()  # Asegura revertir cualquier cambio si ocurre un error
-        return jsonify({'error': str(e)}), 500
+        conn.rollback()
+        return ResponseFactory.create_response('error', str(e))
     finally:
         cursor.close()
         conn.close()
 
 @app.route('/mesas/<int:numero_mesa>', methods=['GET'])
-@jwt_required()
 def get_mesa(numero_mesa):
-    claims = get_jwt_identity()
-    if claims['tipo_usuario'] not in ['super_administrador', 'administrador']:
-        return jsonify({'error': 'Acción no permitida'}), 403
-
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -126,35 +125,28 @@ def get_mesa(numero_mesa):
                 'disponible': mesa[3],
                 'usuario_responsable': mesa[4]
             }
-            return jsonify(mesa_info), 200
+            return ResponseFactory.create_response('success', 'Mesa encontrada', mesa_info)
         else:
-            return jsonify({'error': 'Mesa no encontrada'}), 404
+            return ResponseFactory.create_response('not_found', 'Mesa no encontrada')
     except psycopg2.DatabaseError as e:
-        return jsonify({'error': str(e)}), 500
+        return ResponseFactory.create_response('error', str(e))
     finally:
         cursor.close()
         conn.close()
 
-
-
 @app.route('/mesas/<int:numero_mesa>', methods=['DELETE'])
-@jwt_required()
 def delete_mesa(numero_mesa):
-    claims = get_jwt_identity()
-    if claims['tipo_usuario'] != 'super_administrador':
-        return jsonify({'error': 'Acción no permitida'}), 403
-
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("DELETE FROM mesas WHERE numero_mesa = %s RETURNING numero_mesa;", (numero_mesa,))
         deleted_mesa = cursor.fetchone()
         if not deleted_mesa:
-            return jsonify({"error": "Mesa no encontrada"}), 404
+            return ResponseFactory.create_response('not_found', "Mesa no encontrada")
         conn.commit()
-        return jsonify({"mensaje": "Mesa eliminada con éxito"}), 200
+        return ResponseFactory.create_response('success', "Mesa eliminada con éxito")
     except psycopg2.DatabaseError as e:
-        return jsonify({'error': str(e)}), 500
+        return ResponseFactory.create_response('error', str(e))
     finally:
         cursor.close()
         conn.close()

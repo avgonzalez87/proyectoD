@@ -44,3 +44,21 @@
 .login-container form button:hover {
     background-color: #0056b3;
 }
+
+.navigate-button {
+    margin-top: 10px;
+    padding: 10px;
+    font-size: 1rem;
+    color: white;
+    background-color: #28a745;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    display: block;
+    width: 100%;
+    text-align: center;
+}
+
+.navigate-button:hover {
+    background-color: #218838;
+}

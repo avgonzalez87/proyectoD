@@ -1,32 +1,41 @@
 from flask import Flask, request, jsonify
-from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt
+from flask_cors import CORS
 import psycopg2
 import psycopg2.extras
-from flask_jwt_extended import get_jwt
-
-
 
 app = Flask(__name__)
 app.secret_key = 'tu_super_secreto'
-app.config['JWT_SECRET_KEY'] = 'jwt_super_secreto'
-jwt = JWTManager(app)
+CORS(app)  # Habilitar CORS para todas las rutas
 
 class DatabaseConnection:
-    connection = None
+    _instance = None
 
-    @staticmethod
-    def get_connection():
-        if DatabaseConnection.connection is None:
-            DatabaseConnection.connection = psycopg2.connect(
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(DatabaseConnection, cls).__new__(cls)
+            cls._instance.connection = psycopg2.connect(
                 dbname="Restaurante",
                 user="postgres",
-                password="admin",
+                password="adm",
                 host="localhost"
             )
-        return DatabaseConnection.connection
+        return cls._instance
+
+    def get_connection(self):
+        return self.connection
 
 def get_db_connection():
-    return DatabaseConnection.get_connection()
+    return DatabaseConnection().get_connection()
+
+class ResponseFactory:
+    @staticmethod
+    def create_response(response_type, message, data=None):
+        if response_type == 'success':
+            return jsonify({'status': 'success', 'message': message, 'data': data}), 200
+        elif response_type == 'error':
+            return jsonify({'status': 'error', 'message': message}), 400
+        elif response_type == 'not_found':
+            return jsonify({'status': 'not_found', 'message': message}), 404
 
 @app.route('/')
 def home():
@@ -52,15 +61,14 @@ def create_user():
             (nombre, apellido, correo, telefono, tipo_usuario, contrasena)
         )
         conn.commit()
-        return jsonify({'message': 'Usuario creado exitosamente'}), 201
+        return ResponseFactory.create_response('success', 'Usuario creado exitosamente')
     except psycopg2.DatabaseError as e:
-        return jsonify({'error': str(e)}), 500
+        return ResponseFactory.create_response('error', str(e))
     finally:
         if cursor:
             cursor.close()
         if conn:
             conn.close()
-
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -80,12 +88,11 @@ def login():
         user = cursor.fetchone()
         if user:
             additional_claims = {"tipo_usuario": user['tipo_usuario']}
-            access_token = create_access_token(identity=user['correo'], additional_claims=additional_claims)
-            return jsonify(access_token=access_token), 200
+            return ResponseFactory.create_response('success', 'Login exitoso', {'user': user['correo'], 'tipo_usuario': additional_claims})
         else:
-            return jsonify({'error': 'Credenciales inválidas'}), 401
+            return ResponseFactory.create_response('error', 'Credenciales inválidas')
     except psycopg2.DatabaseError as e:
-        return jsonify({'error': str(e)}), 500
+        return ResponseFactory.create_response('error', str(e))
     finally:
         if cursor:
             cursor.close()
@@ -93,7 +100,6 @@ def login():
             conn.close()
 
 @app.route('/user/<int:user_id>', methods=['GET'])
-@jwt_required()
 def get_user(user_id):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -101,22 +107,16 @@ def get_user(user_id):
         cursor.execute("SELECT * FROM public.usuarios WHERE id = %s", (user_id,))
         user = cursor.fetchone()
         if not user:
-            return jsonify({'error': 'Usuario no encontrado'}), 404
-        return jsonify(user), 200
+            return ResponseFactory.create_response('not_found', 'Usuario no encontrado')
+        return ResponseFactory.create_response('success', 'Usuario encontrado', user)
     except psycopg2.DatabaseError as e:
-        return jsonify({'error': str(e)}), 500
+        return ResponseFactory.create_response('error', str(e))
     finally:
         cursor.close()
         conn.close()
 
-
 @app.route('/user/<int:user_id>', methods=['PUT'])
-@jwt_required()
 def update_user(user_id):
-    claims = get_jwt()  # Get the claims from the JWT
-    if claims['tipo_usuario'] == 'usuario':
-        return jsonify({'error': 'Acción no permitida'}), 403
-
     user_details = request.json
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -127,39 +127,31 @@ def update_user(user_id):
         )
         updated_user = cursor.fetchone()
         if updated_user is None:
-            return jsonify({'error': 'Usuario no encontrado'}), 404
+            return ResponseFactory.create_response('not_found', 'Usuario no encontrado')
         conn.commit()
-        return jsonify({'message': 'Usuario actualizado exitosamente'}), 200
+        return ResponseFactory.create_response('success', 'Usuario actualizado exitosamente')
     except psycopg2.DatabaseError as e:
-        return jsonify({'error': str(e)}), 500
+        return ResponseFactory.create_response('error', str(e))
     finally:
         cursor.close()
         conn.close()
 
 @app.route('/user/<int:user_id>', methods=['DELETE'])
-@jwt_required()
 def delete_user(user_id):
-    claims = get_jwt()
-    if claims['tipo_usuario'] not in ['super_administrador', 'administrador']:
-        return jsonify({'error': 'Acción no permitida'}), 403
-
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("DELETE FROM public.usuarios WHERE id = %s RETURNING id", (user_id,))
         deleted_user = cursor.fetchone()
         if deleted_user is None:
-            return jsonify({'error': 'Usuario no encontrado'}), 404
+            return ResponseFactory.create_response('not_found', 'Usuario no encontrado')
         conn.commit()
-        return jsonify({'message': 'Usuario eliminado exitosamente'}), 200
+        return ResponseFactory.create_response('success', 'Usuario eliminado exitosamente')
     except psycopg2.DatabaseError as e:
-        return jsonify({'error': str(e)}), 500
+        return ResponseFactory.create_response('error', str(e))
     finally:
         cursor.close()
         conn.close()
-
-
-
 
 if __name__ == '__main__':
     app.run(debug=True, port=3200)

@@ -1,17 +1,33 @@
-// frontend/src/components/LoginComponent.js
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './LoginComponent.css';
 
 const LoginComponent = () => {
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
+    const [correo, setCorreo] = useState('');
+    const [contrasena, setContrasena] = useState('');
     const navigate = useNavigate();
 
     const handleLogin = (e) => {
         e.preventDefault();
-        // Aquí puedes manejar la lógica de login, como enviar las credenciales al backend
-        console.log('Logging in with', { username, password });
+        fetch('http://127.0.0.1:3200/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ correo, contrasena }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'error') {
+                console.error('Error:', data.message);
+            } else {
+                console.log('Success:', data);
+                navigate('/menu');
+            }
+        })
+        .catch((error) => {
+            console.error('Error:', error);
+        });
     };
 
     const handleNavigateToRegister = () => {
@@ -23,21 +39,21 @@ const LoginComponent = () => {
             <h2>Login</h2>
             <form onSubmit={handleLogin}>
                 <div>
-                    <label htmlFor="username">Username:</label>
+                    <label htmlFor="correo">Correo:</label>
                     <input
-                        type="text"
-                        id="username"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
+                        type="email"
+                        id="correo"
+                        value={correo}
+                        onChange={(e) => setCorreo(e.target.value)}
                     />
                 </div>
                 <div>
-                    <label htmlFor="password">Password:</label>
+                    <label htmlFor="contrasena">Contraseña:</label>
                     <input
                         type="password"
-                        id="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        id="contrasena"
+                        value={contrasena}
+                        onChange={(e) => setContrasena(e.target.value)}
                     />
                 </div>
                 <button type="submit">Login</button>

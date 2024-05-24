@@ -1,27 +1,40 @@
-// frontend/src/components/RegisterComponent.js
 import React, { useState } from 'react';
-
+import { useNavigate } from 'react-router-dom';
 import './RegisterComponent.css';
 
 const RegisterComponent = () => {
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
+    const [nombre, setNombre] = useState('');
+    const [apellido, setApellido] = useState('');
+    const [correo, setCorreo] = useState('');
+    const [telefono, setTelefono] = useState('');
+    const [tipoUsuario, setTipoUsuario] = useState('');
+    const [contrasena, setContrasena] = useState('');
+    const navigate = useNavigate();
 
     const handleRegister = (e) => {
         e.preventDefault();
-        // Aquí puedes manejar la lógica de registro, como enviar los datos al backend
-        console.log('Registering with', { username, password });
-        // Ejemplo de solicitud al backend
-        fetch('http://localhost:5000/register', {
+        fetch('http://localhost:3200/create_user', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ username, password }),
+            body: JSON.stringify({ 
+                nombre, 
+                apellido, 
+                correo, 
+                telefono, 
+                tipo_usuario: tipoUsuario, 
+                contrasena 
+            }),
         })
         .then(response => response.json())
         .then(data => {
-            console.log('Success:', data);
+            if (data.status === 'error') {
+                console.error('Error:', data.message);
+            } else {
+                console.log('Success:', data.message);
+                navigate('/menu');
+            }
         })
         .catch((error) => {
             console.error('Error:', error);
@@ -33,21 +46,57 @@ const RegisterComponent = () => {
             <h2>Register</h2>
             <form onSubmit={handleRegister}>
                 <div>
-                    <label htmlFor="username">Username:</label>
+                    <label htmlFor="nombre">Nombre:</label>
                     <input
                         type="text"
-                        id="username"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
+                        id="nombre"
+                        value={nombre}
+                        onChange={(e) => setNombre(e.target.value)}
                     />
                 </div>
                 <div>
-                    <label htmlFor="password">Password:</label>
+                    <label htmlFor="apellido">Apellido:</label>
+                    <input
+                        type="text"
+                        id="apellido"
+                        value={apellido}
+                        onChange={(e) => setApellido(e.target.value)}
+                    />
+                </div>
+                <div>
+                    <label htmlFor="correo">Correo:</label>
+                    <input
+                        type="email"
+                        id="correo"
+                        value={correo}
+                        onChange={(e) => setCorreo(e.target.value)}
+                    />
+                </div>
+                <div>
+                    <label htmlFor="telefono">Teléfono:</label>
+                    <input
+                        type="tel"
+                        id="telefono"
+                        value={telefono}
+                        onChange={(e) => setTelefono(e.target.value)}
+                    />
+                </div>
+                <div>
+                    <label htmlFor="tipoUsuario">Tipo de Usuario:</label>
+                    <input
+                        type="text"
+                        id="tipoUsuario"
+                        value={tipoUsuario}
+                        onChange={(e) => setTipoUsuario(e.target.value)}
+                    />
+                </div>
+                <div>
+                    <label htmlFor="contrasena">Contraseña:</label>
                     <input
                         type="password"
-                        id="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        id="contrasena"
+                        value={contrasena}
+                        onChange={(e) => setContrasena(e.target.value)}
                     />
                 </div>
                 <button type="submit">Register</button>

@@ -1,0 +1,30 @@
+/* frontend/src/components/MenuComponent.css */
+.menu-container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+.menu-container h2 {
+    margin-bottom: 20px;
+}
+
+.menu-container button {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    font-size: 1.2rem;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.menu-container button:hover {
+    background-color: #0056b3;
+}
